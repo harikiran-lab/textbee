@@ -46,7 +46,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: [dev, prod]
+        variant: [prod]
 
     steps:
       - name: Checkout repository
@@ -80,6 +80,10 @@ jobs:
         env:
           GOOGLE_SERVICES_JSON: ${{ matrix.variant == 'dev' && secrets.GOOGLE_SERVICES_JSON_DEV || secrets.GOOGLE_SERVICES_JSON_PROD }}
         run: |
+          if [ -z "$GOOGLE_SERVICES_JSON" ]; then
+            echo "::error::Add GOOGLE_SERVICES_JSON_PROD in repository Actions secrets using the Android Firebase config from the same project as your self-hosted API."
+            exit 1
+          fi
           mkdir -p android/app/src/${{ matrix.variant }}
           printf '%s' "$GOOGLE_SERVICES_JSON" > android/app/src/${{ matrix.variant }}/google-services.json
 
