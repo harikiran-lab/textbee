@@ -1,0 +1,65 @@
+name: Self-hosted web image
+
+# Builds the textBee dashboard with your NEXT_PUBLIC_* values baked in
+# and pushes it to ghcr.io/<owner>/textbee-web:latest.
+# Change values under Settings > Secrets and variables > Actions > Variables,
+# then run this workflow again from the Actions tab.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'web/**'
+      - '.github/workflows/selfhost-web-image.yml'
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write build-time env
+        env:
+          SITE_URL: ${{ vars.NEXT_PUBLIC_SITE_URL || 'https://textbee.kandula.us' }}
+          API_URL: ${{ vars.NEXT_PUBLIC_API_BASE_URL || 'https://textbee.kandula.us/api/v1' }}
+          TURNSTILE: ${{ vars.NEXT_PUBLIC_TURNSTILE_SITE_KEY || '0x4AAAAAAF2__lj29zfxIz8N' }}
+          GOOGLE_ID: ${{ vars.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '' }}
+        run: |
+          grep -vE '^(NEXT_PUBLIC_SITE_URL|NEXT_PUBLIC_API_BASE_URL|NEXT_PUBLIC_TURNSTILE_SITE_KEY|NEXT_PUBLIC_GOOGLE_CLIENT_ID)=' web/.env.example > web/.env
+          {
+            echo "NEXT_PUBLIC_SITE_URL=$SITE_URL"
+            echo "NEXT_PUBLIC_API_BASE_URL=$API_URL"
+            echo "NEXT_PUBLIC_TURNSTILE_SITE_KEY=$TURNSTILE"
+            echo "NEXT_PUBLIC_GOOGLE_CLIENT_ID=$GOOGLE_ID"
+          } >> web/.env
+          grep '^NEXT_PUBLIC_' web/.env
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: name
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/textbee-web" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./web
+          push: true
+          tags: |
+            ${{ steps.name.outputs.image }}:latest
+            ${{ steps.name.outputs.image }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Check the key is in the build
+        run: |
+          docker run --rm ${{ steps.name.outputs.image }}:latest sh -c "grep -rlq '${{ vars.NEXT_PUBLIC_TURNSTILE_SITE_KEY || '0x4AAAAAAF2__lj29zfxIz8N' }}' .next && echo 'Turnstile key found in build'"
